@@ -50,6 +50,6 @@ app.get('/healthz', (req, res) => {
 });
 
 // Local dev listener (ignored on Vercel)
-app.listen(3000, () => console.log('Server running on http://localhost:3000'));
+app.listen(8000, () => console.log('Server running on http://localhost:8000'));
 
 module.exports = app;
