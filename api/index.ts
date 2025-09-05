@@ -1,77 +1,80 @@
 // api/index.js
+//const {MongoClient} = require("mongodb")
 const express = require('express');
 const path = require('path');
 const cors = require('cors')
 const app = express();
-const {MongoClient} = require("mongodb")
 require('dotenv/config')
-app.use(cors())
-// Enable JSON parsing for incoming requests (req.body will contain parsed JSON)
-app.use(express.json())
-const client = new MongoClient(process.env.MONGODB_ATLAS_URI || 'mongodb+srv://michaelonyoin:mongodb@cluster0.jidc3.mongodb.net' )
-async function run() {
+app.use(cors())// Enable CORS for all routes
+app.use(express.json()) // Parse JSON request bodies
+const {clientPromise} = require('../db/mongodb');
+const {GoogleGenerativeAIEmbeddings} = require('@langchain/google-genai')
+const {ChatGoogleGenerativeAI} = require('@langchain/google-genai')
+const { AIMessage, BaseMessage, HumanMessage } = require("@langchain/core/messages") // Message types for conversations
+const {
+  ChatPromptTemplate,      // For creating structured prompts with placeholders
+  MessagesPlaceholder,     // Placeholder for dynamic message history
+} = require("@langchain/core/prompts") 
+const { StateGraph } = require("@langchain/langgraph")              // State-based workflow orchestration
+const { Annotation } = require("@langchain/langgraph")               // Type annotations for state management             
+const { tool } = require('@langchain/core/tools') // For creating custom tools/functions
+const { ToolNode } = require("@langchain/langgraph/prebuilt")// Pre-built node for executing tools
+const { MongoDBSaver } = require("@langchain/langgraph-checkpoint-mongodb")  // For saving conversation state
+const { MongoDBAtlasVectorSearch } = require("@langchain/mongodb")    // Vector search integration with MongoDB
+const { z } = require("zod")                                         // Schema validation library
+
+async function handler(req, res) {
   try {
-    
-    await client.connect();
-    console.log("✅ Connected to MongoDB");
-  } catch (err) {
-    console.error("❌ Error connecting to MongoDB:", err);
-  } finally {
-   // await client.close();
+    const client = await clientPromise
+    const db = client.db('your-db-name')
+    const collection = db.collection('your-collection-name')
+
+    const data = await collection.find({}).toArray()
+
+    res.status(200).json({ success: true, data })
+  } catch (error) {
+    console.error('Error in callAgent:', error)
+    res.status(500).json({ success: false, message: 'Internal Server Error' })
   }
 }
-
-run();
-
-
-app.post('/chat', async (req, res) => {
-      // Extract user message from request body
-      const initialMessage = req.body.message
-      // Generate unique thread ID using current timestamp
-      const threadId = Date.now().toString()
-      // Log the incoming message for debugging
-      console.log(initialMessage)
-      try {
-        // Call our AI agent with the message and new thread ID
-        const response = await callAgent(client, initialMessage, threadId)
-        // Send successful response with thread ID and AI response
-        res.json({ threadId, response })
-      } catch (error) {
-        // Log any errors that occur during agent execution
-        console.error('Error starting conversation:', error)
-        // Send error response with 500 status code
-        res.status(500).json({ error: 'Internal server error' })
+// const client = new MongoClient(process.env.MONGODB_ATLAS_URI || 'mongodb+srv://michaelonyoin:mongodb@cluster0.jidc3.mongodb.net' )
+// async function run() {
+//   try {    
+//     await client.connect();
+//     console.log("✅ Connected to MongoDB");
+//   } catch (err) {
+//     console.error("❌ Error connecting to MongoDB:", err);
+//   } finally {
+//    // await client.close();
+//    client.open()
+//   }
+// }
+// run();
+async function retryWithBackoff(fn, maxRetries = 3) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (error.status === 429 && attempt < maxRetries) {
+        const delay = Math.min(1000 * Math.pow(2, attempt), 30000);
+        console.log(`Rate limit hit. Retrying in ${delay / 1000} seconds...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
       }
-    })
-
-    // Define endpoint for continuing existing conversations (POST /chat/:threadId)
-app.post('/chat/:threadId', async (req, res) => {
-      // Extract thread ID from URL parameters
-      const { threadId } = req.params
-      // Extract user message from request body
-      const { message } = req.body
-      try {
-        // Call AI agent with message and existing thread ID (continues conversation)
-        const response = await callAgent(client, message, threadId)
-        // Send AI response (no need to send threadId again since it's continuing)
-        res.json({ response })
-      } catch (error) {
-        // Log any errors that occur during agent execution
-        console.error('Error in chat:', error)
-        // Send error response with 500 status code
-        res.status(500).json({ error: 'Internal server error' })
-      }
-    })
+      throw error;
+    }
+  }
+  throw new Error("Max retries exceeded");
+}
 
 
-//app.get("/", (req, res) => res.send("Express on Vercel"), (req, res) => res.send('LangGraph Agent Server'));
 
 // Serve static files from /public
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // Home route - HTML
-app.get('/', ( res) => {
-  res.type('html').send(`
+app.get('/', (req, res) => {
+  res.status(200).send(`
     <!doctype html>
     <html>
       <head>
@@ -94,12 +97,53 @@ app.get('/', ( res) => {
   `);
 });
 
-app.get('/about', function ( res) {
+app.post('/chat', async (req, res) => {
+      // Extract user message from request body
+      const client = await clientPromise
+      const initialMessage = req.body.message
+      // Generate unique thread ID using current timestamp
+      const threadId = Date.now().toString()
+      // Log the incoming message for debugging
+      console.log(initialMessage)
+      try {
+        // Call our AI agent with the message and new thread ID
+        const response = await callAgent(client, initialMessage, threadId)
+        // Send successful response with thread ID and AI response
+        res.json({ threadId, response })
+      } catch (error) {
+        // Log any errors that occur during agent execution
+        console.error('Error starting conversation:', error)
+        // Send error response with 500 status code
+        res.status(500).json({ error: 'Internal server error' })
+      }
+    })
+
+    // Define endpoint for continuing existing conversations (POST /chat/:threadId)
+app.post('/chat/:threadId', async (req, res) => {
+      const client = await clientPromise
+      // Extract thread ID from URL parameters
+      const { threadId } = req.params
+      // Extract user message from request body
+      const { message } = req.body
+      try {
+        // Call AI agent with message and existing thread ID (continues conversation)
+        const response = await callAgent(client, message, threadId)
+        // Send AI response (no need to send threadId again since it's continuing)
+        res.json({ response })
+      } catch (error) {
+        // Log any errors that occur during agent execution
+        console.error('Error in chat:', error)
+        // Send error response with 500 status code
+        res.status(500).json({ error: 'Internal server error' })
+      }
+    })
+
+app.get('/about', function (req, res) {
 	res.sendFile(path.join(__dirname, '..', 'components', 'about.htm'));
 });
 
 // Example API endpoint - JSON
-app.get('/api-data', (res) => {
+app.get('/api-data', (req, res) => {
   res.json({
     message: 'Here is some sample API data',
     items: ['apple', 'banana', 'cherry']
@@ -107,68 +151,24 @@ app.get('/api-data', (res) => {
 });
 
 // Health check
-app.get('/healthz', ( res) => {
+app.get('/healthz', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
 //AI-Agent endpoint
-app.get('/api/ai-agent', (res) => {
+app.get('/api/ai-agent', (req, res) => {
   res.json({
     message: 'AI Agent endpoint is under construction'
   });
 });
 
-
 // Local dev listener (ignored on Vercel)
 app.listen(8000, () => console.log('Server running on http://localhost:8000'));
 
-
 module.exports = app;
 
-
-
-const {GoogleGenerativeAIEmbeddings} = require('@langchain/google-genai')
-//import { ChatGoogleGenerativeAI } from "@langchain/google-genai" // Google's Gemini AI model
-const {ChatGoogleGenerativeAI} = require('@langchain/google-genai')
-const { AIMessage, BaseMessage, HumanMessage } = require("@langchain/core/messages") // Message types for conversations
-const {
-  ChatPromptTemplate,      // For creating structured prompts with placeholders
-  MessagesPlaceholder,     // Placeholder for dynamic message history
-} = require("@langchain/core/prompts") 
-const { StateGraph } = require("@langchain/langgraph")              // State-based workflow orchestration
-
-const { Annotation } = require("@langchain/langgraph")               // Type annotations for state management
-//import { tool } from "@langchain/core/tools"                   // For creating custom tools/functions
-const { tool } = require('@langchain/core/tools')
-const { ToolNode } = require("@langchain/langgraph/prebuilt")        // Pre-built node for executing tools
-//const {ToolNode} = require('@langchain/langgraph/prebuilt')
-const { MongoDBSaver } = require("@langchain/langgraph-checkpoint-mongodb")  // For saving conversation state
-const { MongoDBAtlasVectorSearch } = require("@langchain/mongodb")    // Vector search integration with MongoDB
-//const { MongoClient } = require("mongodb")                          // MongoDB database client
-const { z } = require("zod")                                         // Schema validation library
-require("dotenv/config")          
-
 // Utility function to handle API rate limits with exponential backoff
-
-
 // Main function that creates and runs the AI agent
-async function retryWithBackoff(fn, maxRetries = 3) {
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      return await fn();
-    } catch (error) {
-      if (error.status === 429 && attempt < maxRetries) {
-        const delay = Math.min(1000 * Math.pow(2, attempt), 30000);
-        console.log(`Rate limit hit. Retrying in ${delay / 1000} seconds...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-        continue;
-      }
-      throw error;
-    }
-  }
-  throw new Error("Max retries exceeded");
-}
-
 // Main function that creates and runs the AI agent
 async function callAgent(client, query, thread_id) {
   try {
@@ -294,7 +294,6 @@ async function callAgent(client, query, thread_id) {
       return "__end__";
     }
 
-
 async function callModel(state) {
   return retryWithBackoff(async () => {
     // Create a structured prompt template
@@ -357,7 +356,6 @@ const finalState = await app.invoke(
 // Extract the final response from the conversation
 const response = finalState.messages[finalState.messages.length - 1].content;
 console.log("Agent response:", response);
-
 return response;
 
 } 
