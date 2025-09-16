@@ -21,13 +21,18 @@ const { tool } = require('@langchain/core/tools') // For creating custom tools/f
 const { ToolNode } = require("@langchain/langgraph/prebuilt")// Pre-built node for executing tools
 const { MongoDBSaver } = require("@langchain/langgraph-checkpoint-mongodb")  // For saving conversation state
 const { MongoDBAtlasVectorSearch } = require("@langchain/mongodb")    // Vector search integration with MongoDB
-const { z } = require("zod")                                         // Schema validation library
+const { z } = require("zod")    // Schema validation library
+const { MongoClient } = require("mongodb")
+const {AzureEmbeddings} = require("@langchain/azure-openai")
 
+const uri = process.env.MONGODB_ATLAS_URI
+const options = {}
+const client = new MongoClient(uri, options) 
 async function handler(req, res) {
   try {
     const client = await clientPromise
-    const db = client.db('your-db-name')
-    const collection = db.collection('your-collection-name')
+    const db = client.db('inventory_database')
+    const collection = db.collection('items')
 
     const data = await collection.find({}).toArray()
 
@@ -37,19 +42,24 @@ async function handler(req, res) {
     res.status(500).json({ success: false, message: 'Internal Server Error' })
   }
 }
+
 // const client = new MongoClient(process.env.MONGODB_ATLAS_URI || 'mongodb+srv://michaelonyoin:mongodb@cluster0.jidc3.mongodb.net' )
 // async function run() {
-//   try {    
-//     await client.connect();
-//     console.log("✅ Connected to MongoDB");
-//   } catch (err) {
-//     console.error("❌ Error connecting to MongoDB:", err);
-//   } finally {
-//    // await client.close();
-//    client.open()
+// try {
+//     const client = await clientPromise
+//     const db = client.db('inventory_database')
+//     const collection = db.collection('items')
+
+//     //const data = await collection.find({}).toArray()
+
+//     //res.status(200).json({ success: true, data })
+//   } catch (error) {
+//     console.error('Error in callAgent:', error)
+//     //res.status(500).json({ success: false, message: 'Internal Server Error' })
 //   }
-// }
-// run();
+//  }
+//  run();
+
 async function retryWithBackoff(fn, maxRetries = 3) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
@@ -99,7 +109,7 @@ app.get('/', (req, res) => {
 
 app.post('/chat', async (req, res) => {
       // Extract user message from request body
-      const client = await clientPromise
+      //const client = await clientPromise
       const initialMessage = req.body.message
       // Generate unique thread ID using current timestamp
       const threadId = Date.now().toString()
@@ -120,7 +130,7 @@ app.post('/chat', async (req, res) => {
 
     // Define endpoint for continuing existing conversations (POST /chat/:threadId)
 app.post('/chat/:threadId', async (req, res) => {
-      const client = await clientPromise
+      //const client = await clientPromise
       // Extract thread ID from URL parameters
       const { threadId } = req.params
       // Extract user message from request body
@@ -169,7 +179,6 @@ module.exports = app;
 
 // Utility function to handle API rate limits with exponential backoff
 // Main function that creates and runs the AI agent
-// Main function that creates and runs the AI agent
 async function callAgent(client, query, thread_id) {
   try {
     const dbName = "inventory_database";
@@ -208,11 +217,20 @@ async function callAgent(client, query, thread_id) {
             textKey: "embedding_text",
             embeddingKey: "embedding",
           };
-
+          // Initialize vector store with Google or Azure embeddings
+          // const vectorStore = new MongoDBAtlasVectorSearch(
+          //   new GoogleGenerativeAIEmbeddings({
+          //     apiKey: process.env.GOOGLE_API_KEY,
+          //     model: "text-embedding-004",
+          //   }),
+          //   dbConfig
+          // );
           const vectorStore = new MongoDBAtlasVectorSearch(
-            new GoogleGenerativeAIEmbeddings({
-              apiKey: process.env.GOOGLE_API_KEY,
-              model: "text-embedding-004",
+            new AzureEmbeddings({
+              deploymentName: process.env.AZURE_EMBEDDING_DEPLOYMENT_NAME || "text-embedding-ada-002",
+              model: process.env.AZURE_EMBEDDING_MODEL || "text-embedding-ada-002",
+              apiKey: process.env.AZURE_API_KEY || "",
+              endpoint: process.env.AZURE_ENDPOINT || "",
             }),
             dbConfig
           );
@@ -307,7 +325,9 @@ async function callModel(state) {
         When using the item_lookup tool:
         - If it returns results, provide helpful details about the furniture items
         - If it returns an error or no results, acknowledge this and offer to help in other ways
+        - Always try to summarize the retrieved information in a user-friendly way (Use less words)
         - If the database appears to be empty, let the customer know that inventory might be being updated
+        - Talk only about the first 3 relevant items you find, unless the customer asks for more
 
         Current time: {time}`,
       ],
