@@ -1,4 +1,7 @@
 // api/index.js
+
+//import { AzureOpenAI } from "@langchain/openai";
+
 //const {MongoClient} = require("mongodb")
 const express = require('express');
 const path = require('path');
@@ -98,6 +101,7 @@ app.get('/', (req, res) => {
           <a href="/about">About</a>
           <a href="/api-data">API Data</a>
           <a href="/healthz">Health</a>
+          <a href="/ai">AI</a>
         </nav>
         <h1>Welcome to Express on Vercel 🚀</h1>
         <p>This is a minimal example without a database or forms.</p>
@@ -150,6 +154,10 @@ app.post('/chat/:threadId', async (req, res) => {
 
 app.get('/about', function (req, res) {
 	res.sendFile(path.join(__dirname, '..', 'components', 'about.htm'));
+});
+
+app.get('/ai', function (req, res) {
+	res.sendFile(path.join(__dirname, '..', 'components', 'ai.html'));
 });
 
 // Example API endpoint - JSON
@@ -218,22 +226,23 @@ async function callAgent(client, query, thread_id) {
             embeddingKey: "embedding",
           };
           // Initialize vector store with Google or Azure embeddings
-          // const vectorStore = new MongoDBAtlasVectorSearch(
-          //   new GoogleGenerativeAIEmbeddings({
-          //     apiKey: process.env.GOOGLE_API_KEY,
-          //     model: "text-embedding-004",
-          //   }),
-          //   dbConfig
-          // );
           const vectorStore = new MongoDBAtlasVectorSearch(
-            new AzureEmbeddings({
-              deploymentName: process.env.AZURE_EMBEDDING_DEPLOYMENT_NAME || "text-embedding-ada-002",
-              model: process.env.AZURE_EMBEDDING_MODEL || "text-embedding-ada-002",
-              apiKey: process.env.AZURE_API_KEY || "",
-              endpoint: process.env.AZURE_ENDPOINT || "",
+            new GoogleGenerativeAIEmbeddings({
+              apiKey: process.env.GOOGLE_API_KEY,
+              model: "text-embedding-004",
             }),
             dbConfig
           );
+          // const vectorStore = new MongoDBAtlasVectorSearch(
+            
+          //   new AzureEmbeddings({
+          //     deploymentName: process.env.AZURE_EMBEDDING_DEPLOYMENT_NAME || "text-embedding-ada-002",
+          //     model: process.env.AZURE_EMBEDDING_MODEL || "text-embedding-ada-002",
+          //     apiKey: process.env.AZURE_API_KEY || "",
+          //     endpoint: process.env.AZURE_ENDPOINT || "",
+          //   }),
+          //   dbConfig
+          // );
 
           console.log("Performing vector search...");
           const result = await vectorStore.similaritySearchWithScore(query, n);
@@ -301,6 +310,13 @@ async function callAgent(client, query, thread_id) {
       maxRetries: 0,
       apiKey: process.env.GOOGLE_API_KEY,
     }).bindTools(tools);
+
+    // const model = new AzureOpenAI({
+    //   apiKey: process.env.AZURE_API_KEY,
+    //   endpoint: process.env.AZURE_ENDPOINT,
+    //   deploymentName: process.env.AZURE_DEPLOYMENT_NAME,
+    //   model: process.env.AZURE_MODEL,
+    // }).asTool(tools);
 
     function shouldContinue(state) {
       const messages = state.messages;
