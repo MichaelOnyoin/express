@@ -1,11 +1,9 @@
 import express from "express";
-//const express = require('express');
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
 import Stripe from "stripe";
 import dotenv from "dotenv";
-//const cors = require('cors');
 import cors from "cors";
 
 dotenv.config();
@@ -16,7 +14,7 @@ const __dirname = path.dirname(__filename);
 async function startServer() {
   const app = express();
   // Allow requests from your frontend origin
-  app.use(cors({ origin: ['http://localhost:3000','merxshop.vercel.app'] }));
+  app.use(cors({ origin: ['http://localhost:3000','https://merxshop.vercel.app/'] }));
   const PORT = 8000;
 
   let stripe: Stripe | null = null;
