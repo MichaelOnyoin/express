@@ -5,7 +5,7 @@
 	"main": "index.ts",
 	"scripts": {
 		"test": "echo \"Error: no test specified\" && exit 1",
-		"start": "node api/index.ts"
+		"start": "node server.ts"
 	},
 	"keywords": [],
 	"author": "",
@@ -22,9 +22,13 @@
 		"dotenv": "^17.2.2",
 		"express": "^4.18.2",
 		"mongodb": "^6.19.0",
+		"stripe": "^22.1.0",
+		"vite": "^8.0.10",
 		"zod": "^3.25.76"
 	},
 	"devDependencies": {
+		"@types/cors": "^2.8.19",
+		"@types/express": "^5.0.6",
 		"@types/node": "^24.3.0",
 		"ts-node": "^10.9.2"
 	}

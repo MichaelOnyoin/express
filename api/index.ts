@@ -181,7 +181,7 @@ app.get('/api/ai-agent', (req, res) => {
 });
 
 // Local dev listener (ignored on Vercel)
-app.listen(8000, () => console.log('Server running on http://localhost:8000'));
+app.listen(4000, () => console.log('Server running on http://localhost:4000'));
 
 module.exports = app;
 
